@@ -1,3 +1,13 @@
+import java.io.File
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+
+// Represents one evidence note with text and a timestamp.
+data class EvidenceNote(
+    val note: String,
+    val timestamp: String
+)
+
 // Represents one incident in the tracker.
 data class Incident(
     val id: Int,
@@ -5,7 +15,7 @@ data class Incident(
     var severity: Severity,
     var status: Status,
     var assignedAnalyst: String,
-    val evidenceNotes: MutableList<String>
+    val evidenceNotes: MutableList<EvidenceNote>
 )
 
 // Severity levels for incidents.
@@ -56,11 +66,14 @@ class IncidentTracker {
         }
     }
 
-    // Adds an evidence note to a specific incident.
+    // Adds an evidence note with a timestamp to a specific incident.
     fun addEvidence(id: Int, note: String) {
         val incident = findIncidentById(id)
         if (incident != null) {
-            incident.evidenceNotes.add(note)
+            val timestamp = LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+
+            incident.evidenceNotes.add(EvidenceNote(note, timestamp))
             println("Evidence note added.")
         } else {
             println("Incident not found.")
@@ -142,9 +155,102 @@ class IncidentTracker {
             println("- No evidence notes yet.")
         } else {
             for (note in incident.evidenceNotes) {
-                println("- $note")
+                println("- [${note.timestamp}] ${note.note}")
             }
         }
+    }
+
+    // Saves all incidents to a text file.
+    fun saveToFile(fileName: String) {
+        val file = File(fileName)
+        file.printWriter().use { writer ->
+            for (incident in incidents) {
+                writer.println("INCIDENT|${incident.id}|${incident.title}|${incident.severity}|${incident.status}|${incident.assignedAnalyst}")
+
+                for (note in incident.evidenceNotes) {
+                    writer.println("NOTE|${note.timestamp}|${note.note}")
+                }
+
+                writer.println("END")
+            }
+        }
+        println("Incidents saved to file.")
+    }
+
+    // Loads incidents from a text file.
+    fun loadFromFile(fileName: String) {
+        val file = File(fileName)
+
+        if (!file.exists()) {
+            println("File not found.")
+            return
+        }
+
+        incidents.clear()
+        var currentIncident: Incident? = null
+        var highestId = 0
+
+        file.forEachLine { line ->
+            val parts = line.split("|")
+
+            when (parts[0]) {
+                "INCIDENT" -> {
+                    val id = parts[1].toInt()
+                    val title = parts[2]
+                    val severity = Severity.valueOf(parts[3])
+                    val status = Status.valueOf(parts[4])
+                    val analyst = parts[5]
+
+                    currentIncident = Incident(
+                        id = id,
+                        title = title,
+                        severity = severity,
+                        status = status,
+                        assignedAnalyst = analyst,
+                        evidenceNotes = mutableListOf()
+                    )
+
+                    incidents.add(currentIncident!!)
+                    if (id > highestId) {
+                        highestId = id
+                    }
+                }
+
+                "NOTE" -> {
+                    if (currentIncident != null) {
+                        val timestamp = parts[1]
+                        val noteText = parts.drop(2).joinToString("|")
+                        currentIncident!!.evidenceNotes.add(EvidenceNote(noteText, timestamp))
+                    }
+                }
+
+                "END" -> {
+                    currentIncident = null
+                }
+            }
+        }
+
+        nextId = highestId + 1
+        println("Incidents loaded from file.")
+    }
+
+    // Exports incidents to a CSV file.
+    fun exportToCsv(fileName: String) {
+        val file = File(fileName)
+        file.printWriter().use { writer ->
+            writer.println("ID,Title,Severity,Status,AssignedAnalyst,EvidenceCount")
+
+            for (incident in incidents) {
+                val safeTitle = incident.title.replace(",", ";")
+                val safeAnalyst = incident.assignedAnalyst.replace(",", ";")
+
+                writer.println(
+                    "${incident.id},$safeTitle,${incident.severity},${incident.status},$safeAnalyst,${incident.evidenceNotes.size}"
+                )
+            }
+        }
+
+        println("CSV report exported.")
     }
 
     // Searches the list for an incident by its ID.
@@ -187,7 +293,10 @@ fun printMenu() {
         6. Filter by severity
         7. Show dashboard
         8. View incident details
-        9. Exit
+        9. Save incidents to file
+        10. Load incidents from file
+        11. Export report to CSV
+        12. Exit
         """.trimIndent()
     )
 }
@@ -195,6 +304,8 @@ fun printMenu() {
 // Program entry point.
 fun main() {
     val tracker = IncidentTracker()
+    val defaultDataFile = "incidents.txt"
+    val defaultCsvFile = "incident_report.csv"
     var running = true
 
     // Main loop keeps the program running until the user exits.
@@ -215,7 +326,6 @@ fun main() {
                 print("Enter assigned analyst: ")
                 val analyst = readlnOrNull().orEmpty()
 
-                // Validate input before adding the incident.
                 if (title.isBlank() || analyst.isBlank() || severity == null) {
                     println("Invalid input. Incident was not added.")
                 } else {
@@ -232,7 +342,6 @@ fun main() {
                 print("Enter evidence note: ")
                 val note = readlnOrNull().orEmpty()
 
-                // Ensure both the ID and note are valid.
                 if (id == null || note.isBlank()) {
                     println("Invalid input.")
                 } else {
@@ -248,7 +357,6 @@ fun main() {
                 val statusInput = readlnOrNull().orEmpty()
                 val status = readStatus(statusInput)
 
-                // Validate ID and status before updating.
                 if (id == null || status == null) {
                     println("Invalid input.")
                 } else {
@@ -263,7 +371,6 @@ fun main() {
                 print("Enter new analyst name: ")
                 val analyst = readlnOrNull().orEmpty()
 
-                // Reassign only if the ID and new analyst are valid.
                 if (id == null || analyst.isBlank()) {
                     println("Invalid input.")
                 } else {
@@ -296,7 +403,13 @@ fun main() {
                 }
             }
 
-            9 -> {
+            9 -> tracker.saveToFile(defaultDataFile)
+
+            10 -> tracker.loadFromFile(defaultDataFile)
+
+            11 -> tracker.exportToCsv(defaultCsvFile)
+
+            12 -> {
                 running = false
                 println("Exiting program.")
             }
